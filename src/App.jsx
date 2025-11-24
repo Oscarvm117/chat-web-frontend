@@ -123,6 +123,8 @@ function ChatApp({ user, onLogout }) {
   const [messageText, setMessageText] = useState('');
   const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [showJoinPrivate, setShowJoinPrivate] = useState(false);
+  const [showRoomCode, setShowRoomCode] = useState(false);
+  const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -289,12 +291,16 @@ function ChatApp({ user, onLogout }) {
       ws.joinRoom(room.id);
       
       const history = await api.getHistory(room.id, 1, 50);
-      const msgs = (history?.messages || []).map(m => ({
-        id: m.id,
-        content: m.content,
-        timestamp: m.timestamp,
-        user: m.User || m.user || m.sender || { username: m.username || 'Usuario' }
-      }));
+      const msgs = (history?.messages || []).map(m => {
+        const sender = m.User || m.user || m.sender || { username: 'Usuario' };
+        return {
+          id: m.id,
+          content: m.content,
+          timestamp: m.timestamp,
+          user: sender,
+          userId: m.userId || sender?.id // ← IMPORTANTE: Guardar userId
+        };
+      });
       setMessages(msgs);
       setCurrentRoom({
         id: room.id,
@@ -324,12 +330,16 @@ function ChatApp({ user, onLogout }) {
       ws.joinRoom(roomId.trim());
       
       const history = await api.getHistory(roomId.trim(), 1, 50);
-      const msgs = (history?.messages || []).map(m => ({
-        id: m.id,
-        content: m.content,
-        timestamp: m.timestamp,
-        user: m.User || m.user || m.sender || { username: m.username || 'Usuario' }
-      }));
+      const msgs = (history?.messages || []).map(m => {
+        const sender = m.User || m.user || m.sender || { username: 'Usuario' };
+        return {
+          id: m.id,
+          content: m.content,
+          timestamp: m.timestamp,
+          user: sender,
+          userId: m.userId || sender?.id // ← IMPORTANTE: Guardar userId
+        };
+      });
       
       // Buscar la sala en la lista para obtener info
       const room = rooms.find(r => r.id === roomId.trim());
@@ -381,9 +391,10 @@ function ChatApp({ user, onLogout }) {
       const room = await api.createRoom(name.trim(), isPrivate);
       console.log('✅ Sala creada:', room);
       
-      // Si es privada, mostrar el código al creador
+      // Si es privada, mostrar el código en un modal
       if (isPrivate) {
-        alert(`✅ Sala privada creada exitosamente!\n\n🔑 Código de acceso:\n${room.id}\n\nComparte este código con quien quieras invitar.`);
+        setRoomCode(room.id);
+        setShowRoomCode(true);
       }
       
       // Recargar todas las salas para sincronizar
@@ -540,7 +551,12 @@ function ChatApp({ user, onLogout }) {
                 messages.map((msg) => {
                   const sender = msg.user || msg.User || { username: 'Usuario' };
                   const time = msg.timestamp ? new Date(msg.timestamp) : null;
-                  const isOwnMessage = sender?.id === user.id || sender?.username === user.username;
+                  
+                  // Comparar por ID o por username
+                  const isOwnMessage = 
+                    msg.userId === user.id || 
+                    sender?.id === user.id || 
+                    sender?.username === user.username;
                   
                   return (
                     <div 
@@ -612,6 +628,11 @@ function ChatApp({ user, onLogout }) {
       {/* Join Private Room Modal */}
       {showJoinPrivate && (
         <JoinPrivateRoomModal onClose={() => setShowJoinPrivate(false)} onJoin={handleJoinWithCode} />
+      )}
+
+      {/* Room Code Modal */}
+      {showRoomCode && (
+        <RoomCodeModal roomCode={roomCode} onClose={() => setShowRoomCode(false)} />
       )}
     </div>
   );
@@ -754,6 +775,73 @@ function JoinPrivateRoomModal({ onClose, onJoin }) {
               Unirse
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RoomCodeModal({ roomCode, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(roomCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="bg-green-600 p-2 rounded-lg">
+            <Lock className="w-6 h-6 text-white" />
+          </div>
+          <h3 className="text-xl font-bold text-white">¡Sala Privada Creada!</h3>
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-slate-300 text-sm">
+            Tu sala privada ha sido creada exitosamente. Comparte este código con las personas que quieres invitar:
+          </p>
+
+          <div className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+            <label className="block text-xs font-medium text-slate-400 mb-2">
+              🔑 Código de acceso
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={roomCode}
+                readOnly
+                className="flex-1 bg-slate-800 text-white rounded px-3 py-2 font-mono text-sm select-all focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                onClick={(e) => e.target.select()}
+              />
+              <button
+                onClick={handleCopy}
+                className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                  copied 
+                    ? 'bg-green-600 text-white' 
+                    : 'bg-purple-600 hover:bg-purple-700 text-white'
+                }`}
+              >
+                {copied ? '✓ Copiado' : 'Copiar'}
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-3">
+            <p className="text-sm text-blue-200">
+              💡 <strong>Tip:</strong> Los usuarios pueden unirse usando el botón "Unirse con código" en la barra lateral.
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg transition-colors"
+          >
+            Entendido
+          </button>
         </div>
       </div>
     </div>
